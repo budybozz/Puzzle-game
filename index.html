@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Puzzle Gambar Online</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      padding: 20px;
+      background: #f0f0f0;
+    }
+    h1 {
+      margin-bottom: 10px;
+    }
+    #controls {
+      margin-bottom: 20px;
+    }
+    #puzzle-container {
+      display: grid;
+      grid-template-columns: repeat(4, 100px);
+      grid-template-rows: repeat(4, 100px);
+      gap: 2px;
+      width: 408px;
+      margin: 0 auto;
+      border: 2px solid #333;
+    }
+    .piece {
+      width: 100px;
+      height: 100px;
+      background-size: 400px 400px;
+      cursor: move;
+      border: 1px solid #ccc;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .piece.dragging {
+      transform: scale(1.05);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    }
+    #timer, #status, #highscore {
+      margin-top: 10px;
+      font-size: 1.1em;
+    }
+    button {
+      margin: 0 5px;
+      padding: 8px 12px;
+      font-size: 1em;
+    }
+  </style>
+</head>
+<body>
+  <h1>Puzzle Gambar Online</h1>
+  <div id="controls">
+    <input type="file" id="upload" accept="image/*" />
+    <button onclick="shufflePuzzle()">Acak Ulang</button>
+    <button onclick="resetGame()">Reset</button>
+  </div>
+  <div id="timer">Waktu: 0 detik</div>
+  <div id="status"></div>
+  <div id="highscore">Skor terbaik: -</div>
+  <div id="puzzle-container"></div>
+  <script>
+    const container = document.getElementById('puzzle-container');
+    const timerDisplay = document.getElementById('timer');
+    const statusDisplay = document.getElementById('status');
+    const highscoreDisplay = document.getElementById('highscore');
+    let pieces = [], originalOrder = [], timer, time = 0, started = false;
+    let currentImage = 'https://i.imgur.com/2nCt3Sbl.jpg'; // Ganti dengan URL gambar online (contoh placeholder, sesuaikan dengan ethos.png jika diunggah)
+    let touchedElement = null;
+
+    // Fungsi untuk mengacak array
+    function shuffleArray(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+    }
+
+    // Pemeriksaan solvabilitas untuk puzzle 4x4
+    function isSolvable(order) {
+      let inversions = 0;
+      const flatOrder = order.map(pos => {
+        const [row, col] = pos.split('-').map(Number);
+        return row * 4 + col;
+      });
+      for (let i = 0; i < flatOrder.length - 1; i++) {
+        for (let j = i + 1; j < flatOrder.length; j++) {
+          if (flatOrder[i] > flatOrder[j]) inversions++;
+        }
+      }
+      return inversions % 2 === 0;
+    }
+
+    // Mulai timer
+    function startTimer() {
+      timer = setInterval(() => {
+        time++;
+        timerDisplay.textContent = `Waktu: ${time} detik`;
+      }, 1000);
+    }
+
+    // Hentikan timer
+    function stopTimer() {
+      clearInterval(timer);
+    }
+
+    // Reset permainan
+    function resetGame() {
+      time = 0;
+      started = false;
+      stopTimer();
+      timerDisplay.textContent = `Waktu: 0 detik`;
+      statusDisplay.textContent = '';
+      if (originalOrder.length) {
+        loadPuzzle(originalOrder.map(p => p.dataset.position), currentImage);
+      }
+    }
+
+    // Cek apakah puzzle selesai
+    function checkCompletion() {
+      const children = Array.from(container.children);
+      const isCorrect = children.every((child, idx) =>
+        child.dataset.position === originalOrder[idx].dataset.position
+      );
+      if (isCorrect) {
+        stopTimer();
+        statusDisplay.textContent = 'Puzzle selesai!';
+        const highscore = parseInt(localStorage.getItem('highscore') || '99999');
+        if (time < highscore) {
+          localStorage.setItem('highscore', time);
+          highscoreDisplay.textContent = `Skor terbaik: ${time} detik`;
+        }
+      }
+    }
+
+    // Muat puzzle dengan urutan dan gambar tertentu
+    function loadPuzzle(order, imageURL) {
+      container.innerHTML = '';
+      pieces = [];
+
+      for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 4; col++) {
+          const div = document.createElement('div');
+          div.classList.add('piece');
+          div.style.backgroundImage = `url(${imageURL})`;
+          div.style.backgroundPosition = `-${col * 100}px -${row * 100}px`;
+          div.setAttribute('data-position', `${row}-${col}`);
+          pieces.push(div);
+        }
+      }
+
+      originalOrder = [...pieces];
+      const orderedPieces = order.map(pos => pieces.find(p => p.dataset.position === pos));
+
+      orderedPieces.forEach(piece => {
+        container.appendChild(piece);
+        piece.setAttribute('draggable', true);
+        // Event handler untuk drag-and-drop
+        piece.addEventListener('dragstart', dragStart);
+        piece.addEventListener('dragover', dragOver);
+        piece.addEventListener('drop', drop);
+        // Event handler untuk sentuhan
+        piece.addEventListener('touchstart', touchStart);
+        piece.addEventListener('touchmove', touchMove);
+        piece.addEventListener('touchend', touchEnd);
+      });
+    }
+
+    // Drag-and-drop handler
+    let dragged;
+    function dragStart(e) {
+      dragged = e.target;
+      dragged.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', dragged.dataset.position);
+      if (!started) {
+        started = true;
+        startTimer();
+      }
+    }
+
+    function dragOver(e) {
+      e.preventDefault();
+    }
+
+    function drop(e) {
+      e.preventDefault();
+      dragged.classList.remove('dragging');
+      if (dragged !== e.target) {
+        const draggedClone = dragged.cloneNode(true);
+        const targetClone = e.target.cloneNode(true);
+
+        container.replaceChild(draggedClone, e.target);
+        container.replaceChild(targetClone, dragged);
+
+        [draggedClone, targetClone].forEach(piece => {
+          piece.setAttribute('draggable', true);
+          piece.addEventListener('dragstart', dragStart);
+          piece.addEventListener('dragover', dragOver);
+          piece.addEventListener('drop', drop);
+          piece.addEventListener('touchstart', touchStart);
+          piece.addEventListener('touchmove', touchMove);
+          piece.addEventListener('touchend', touchEnd);
+        });
+        checkCompletion();
+      }
+    }
+
+    // Touch handler untuk perangkat sentuh
+    function touchStart(e) {
+      e.preventDefault();
+      touchedElement = e.target;
+      touchedElement.classList.add('dragging');
+      if (!started) {
+        started = true;
+        startTimer();
+      }
+    }
+
+    function touchMove(e) {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const target = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (target && target.classList.contains('piece') && target !== touchedElement) {
+        target.style.transform = 'scale(1.05)';
+      }
+    }
+
+    function touchEnd(e) {
+      e.preventDefault();
+      touchedElement.classList.remove('dragging');
+      const touch = e.changedTouches[0];
+      const target = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (target && target.classList.contains('piece') && target !== touchedElement) {
+        const draggedClone = touchedElement.cloneNode(true);
+        const targetClone = target.cloneNode(true);
+
+        container.replaceChild(draggedClone, target);
+        container.replaceChild(targetClone, touchedElement);
+
+        [draggedClone, targetClone].forEach(piece => {
+          piece.setAttribute('draggable', true);
+          piece.addEventListener('dragstart', dragStart);
+          piece.addEventListener('dragover', dragOver);
+          piece.addEventListener('drop', drop);
+          piece.addEventListener('touchstart', touchStart);
+          piece.addEventListener('touchmove', touchMove);
+          piece.addEventListener('touchend', touchEnd);
+        });
+        checkCompletion();
+      }
+      Array.from(container.children).forEach(piece => piece.style.transform = 'scale(1)');
+      touchedElement = null;
+    }
+
+    // Acak puzzle dengan memastikan solvabilitas
+    function shufflePuzzle() {
+      if (!currentImage) {
+        statusDisplay.textContent = 'Silakan unggah gambar terlebih dahulu.';
+        return;
+      }
+      let order = originalOrder.map(p => p.dataset.position);
+      do {
+        shuffleArray(order);
+      } while (!isSolvable(order));
+      loadPuzzle(order, currentImage);
+      resetGame();
+    }
+
+    // Resize gambar ke 400x400px
+    function resizeImage(file, callback) {
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        const img = new Image();
+        img.onload = function () {
+          const canvas = document.createElement('canvas');
+          canvas.width = 400;
+          canvas.height = 400;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, 400, 400);
+          callback(canvas.toDataURL());
+        };
+        img.onerror = function () {
+          statusDisplay.textContent = 'Gagal memuat gambar. Silakan coba gambar lain.';
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Handler unggah gambar
+    document.getElementById('upload').addEventListener('change', function (e) {
+      const file = e.target.files[0];
+      if (!file || !file.type.startsWith('image/')) {
+        statusDisplay.textContent = 'Silakan unggah file gambar yang valid.';
+        return;
+      }
+      resizeImage(file, function (imageURL) {
+        currentImage = imageURL;
+        const order = [];
+        for (let row = 0; row < 4; row++) {
+          for (let col = 0; col < 4; col++) {
+            order.push(`${row}-${col}`);
+          }
+        }
+        do {
+          shuffleArray(order);
+        } while (!isSolvable(order));
+        loadPuzzle(order, currentImage);
+        resetGame();
+        const highscore = localStorage.getItem('highscore');
+        if (highscore) highscoreDisplay.textContent = `Skor terbaik: ${highscore} detik`;
+      });
+    });
+
+    // Inisialisasi puzzle dengan gambar default
+    window.onload = function () {
+      const order = [];
+      for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 4; col++) {
+          order.push(`${row}-${col}`);
+        }
+      }
+      shuffleArray(order);
+      loadPuzzle(order, currentImage);
+      const highscore = localStorage.getItem('highscore');
+      if (highscore) highscoreDisplay.textContent = `Skor terbaik: ${highscore} detik`;
+    };
+  </script>
+</body>
+</html>
